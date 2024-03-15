@@ -37,6 +37,11 @@ class DbusEvccChargerService:
 
         # get data from go-eCharger
         data = self._getEvccChargerData()
+        result = data["result"]
+        loadpoint = result["loadpoints"][0]
+
+        # Set custom name from loadpoint title
+        customname = str(loadpoint['title'])
 
         # Create the management objects, as specified in the ccgx dbus-api document
         self._dbusservice.add_path('/Mgmt/ProcessName', __file__)
@@ -48,7 +53,7 @@ class DbusEvccChargerService:
         self._dbusservice.add_path('/DeviceInstance', deviceinstance)
         self._dbusservice.add_path('/ProductId', 0xFFFF)  #
         self._dbusservice.add_path('/ProductName', productname)
-        self._dbusservice.add_path('/CustomName', productname)
+        self._dbusservice.add_path('/CustomName', customname)
         #self._dbusservice.add_path('/FirmwareVersion', int(data['divert_update']))
         self._dbusservice.add_path('/HardwareVersion', 2)
         #self._dbusservice.add_path('/Serial', data['comm_success'])
