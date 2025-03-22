@@ -35,8 +35,10 @@ class DbusEvccChargerService:
             '/Mode'
         ]
 
-        # get data from go-eCharger
+        # get data from loadpoint
         data = self._getEvccChargerData()
+        result = data["result"]
+        loadpoint = result["loadpoints"][lpInstance]
 
         # Create the management objects, as specified in the ccgx dbus-api document
         self._dbusservice.add_path('/Mgmt/ProcessName', __file__)
@@ -55,7 +57,11 @@ class DbusEvccChargerService:
         self._dbusservice.add_path('/Connected', 1)
         self._dbusservice.add_path('/UpdateIndex', 0)
 
-        self._dbusservice.add_path('/Position', 1) # 0: ac out, 1: ac in
+        self._dbusservice.add_path('/Position', acPosition) # 0: ac out, 1: ac in
+
+        # add paths without units
+        for path in paths_wo_unit:
+            self._dbusservice.add_path(path, None)
 
         # add paths without units
         for path in paths_wo_unit:
@@ -66,81 +72,82 @@ class DbusEvccChargerService:
             self._dbusservice.add_path(
                 path, settings['initial'], gettextcallback=settings['textformat'], writeable=False)
 
-        # last update
-        self._lastUpdate = 0
+         # last update
+         self._lastUpdate = 0
 
-        # charging time in float
-        self._chargingTime = 0.0
+         # charging time in float
+         self._chargingTime = 0.0
 
-        # add _update function 'timer'
-        gobject.timeout_add(2000, self._update)  # pause 2sec before the next request
+         # add _update function 'timer'
+         gobject.timeout_add(2000, self._update)  # pause 2sec before the next request
 
-        # add _signOfLife 'timer' to get feedback in log every 5minutes
-        gobject.timeout_add(self._getSignOfLifeInterval() * 60 * 1000, self._signOfLife)
+         # add _signOfLife 'timer' to get feedback in log every 5minutes
+         gobject.timeout_add(self._getSignOfLifeInterval() * 60 * 1000, self._signOfLife)
 
-    def _getConfig(self):
-        config = configparser.ConfigParser()
-        config.read("%s/config.ini" % (os.path.dirname(os.path.realpath(__file__))))
-        return config
+     def _getConfig(self):
+         config = configparser.ConfigParser()
+         config.read("%s/config.ini" % (os.path.dirname(os.path.realpath(__file__))))
+         return config
 
-    def _getSignOfLifeInterval(self):
-        config = self._getConfig()
-        value = config['DEFAULT']['SignOfLifeLog']
+     def _getSignOfLifeInterval(self):
+         config = self._getConfig()
+         value = config['DEFAULT']['SignOfLifeLog']
 
-        if not value:
-            value = 0
+         if not value:
+             value = 0
 
-        return int(value)
+         return int(value)
 
-    def _getEvccChargerStatusUrl(self):
-        config = self._getConfig()
-        accessType = config['DEFAULT']['AccessType']
+     def _getEvccChargerStatusUrl(self):
+         config = self._getConfig()
+         accessType = config['DEFAULT']['AccessType']
 
-        if accessType == 'OnPremise':
-            URL = "http://%s/api/state" % (config['ONPREMISE']['Host'])
-        else:
-            raise ValueError("AccessType %s is not supported" % (config['DEFAULT']['AccessType']))
+         if accessType == 'OnPremise':
+             URL = "http://%s/api/state" % (config['ONPREMISE']['Host'])
+         else:
+             raise ValueError("AccessType %s is not supported" % (config['DEFAULT']['AccessType']))
 
-        return URL
+         return URL
 
-    def _getEvccChargerData(self):
-        URL = self._getEvccChargerStatusUrl()
-        request_data = requests.get(url=URL)
+     def _getEvccChargerData(self):
+         URL = self._getEvccChargerStatusUrl()
+         request_data = requests.get(url=URL)
 
-        # check for response
-        if not request_data:
-            raise ConnectionError("No response from EVCC-Charger - %s" % (URL))
+         # check for response
+         if not request_data:
+             raise ConnectionError("No response from EVCC-Charger - %s" % (URL))
 
-        json_data = request_data.json()
+         json_data = request_data.json()
 
-        # check for Json
-        if not json_data:
-            raise ValueError("Converting response to JSON failed")
+         # check for Json
+         if not json_data:
+             raise ValueError("Converting response to JSON failed")
 
-        return json_data
+         return json_data
 
-    def _signOfLife(self):
-        logging.info("--- Start: sign of life ---")
-        logging.info("Last _update() call: %s" % (self._lastUpdate))
-        logging.info("Last '/Ac/Power': %s" % (self._dbusservice['/Ac/Power']))
-        logging.info("--- End: sign of life ---")
-        return True
-
+     def _signOfLife(self):
+         logging.info("--- Start: sign of life ---")
+         logging.info("Last _update() call: %s" % (self._lastUpdate))
+         logging.info("Last '/Ac/Power': %s" % (self._dbusservice['/Ac/Power']))
+         logging.info("--- End: sign of life ---")
+         return True
     def _update(self):
         try:
-            # get data from go-eCharger
+            # get data from Loadpoint
+            config = self._getConfig()
+            lpInstance = int(config['DEFAULT']['LoadpointInstance'])
             data = self._getEvccChargerData()
             result = data["result"]
-            loadpoint = result["loadpoints"][0]
+            loadpoint = result["loadpoints"][lpInstance]
 
             # send data to DBus
 
             # not really needed, but can be enabled
-            voltage = 230 # adjust to your voltage
-            self._dbusservice['/Ac/L1/Power'] = float(loadpoint['chargeCurrents'][0]) * voltage # watt
-            self._dbusservice['/Ac/L2/Power'] = float(loadpoint['chargeCurrents'][1]) * voltage # watt
-            self._dbusservice['/Ac/L3/Power'] = float(loadpoint['chargeCurrents'][2]) * voltage # watt
-            self._dbusservice['/Ac/Voltage'] = voltage
+            # voltage = 230 # adjust to your voltage
+            self._dbusservice['/Ac/L1/Power'] = float(loadpoint['chargeCurrents'][0]) * int(loadpoint['chargeVoltages'][0]) # watt
+            self._dbusservice['/Ac/L2/Power'] = float(loadpoint['chargeCurrents'][1]) * int(loadpoint['chargeVoltages'][1]) # watt
+            self._dbusservice['/Ac/L3/Power'] = float(loadpoint['chargeCurrents'][2]) * int(loadpoint['chargeVoltages'][2]) # watt
+            self._dbusservice['/Ac/Voltage'] = int(loadpoint['chargeVoltages'][0])
 
             self._dbusservice['/Ac/Power'] = float(loadpoint['chargePower']) # w
             self._dbusservice['/Current'] = float(loadpoint['chargeCurrent'])
@@ -160,8 +167,7 @@ class DbusEvccChargerService:
                 self._dbusservice['/Mode'] = 0
                 self._dbusservice['/StartStop'] = 1
 
-	        # 0:EVdisconnected; 1:Connected; 2:Charging; 3:Charged; 4:Wait sun; 5:Wait RFID; 6:Wait enable; 7:Low SOC; 8:Ground error; 9:Welded contacts error; defaut:Unknown;
-            status = 0
+                # 0:EVdisconnected; 1:Connected; 2:Charging; 3:Charged; 4:Wait sun; 5:Wait RFID; 6:Wait enable; 7:Low SOC; 8:Ground >            status = 0
             if loadpoint['connected'] == False:
                 status = 0
             elif loadpoint['connected'] == True:
@@ -181,7 +187,6 @@ class DbusEvccChargerService:
                 self._dbusservice['/ChargingTime'] = 0
             else:
                 self._dbusservice['/ChargingTime'] = int(loadpoint["chargeDuration"])/1000000000  # s
-
             # logging
             logging.debug("Wallbox Consumption (/Ac/Power): %s" % (self._dbusservice['/Ac/Power']))
             logging.debug("Wallbox Forward (/Ac/Energy/Forward): %s" % (self._dbusservice['/Ac/Energy/Forward']))
@@ -198,8 +203,7 @@ class DbusEvccChargerService:
         except Exception as e:
             logging.critical('Error at %s', '_update', exc_info=e)
 
-        # return true, otherwise add_timeout will be removed from GObject - see docs http://library.isr.ist.utl.pt/docs/pygtk2reference/gobject-functions.html#function-gobject--timeout-add
-        return True
+        # return true, otherwise add_timeout will be removed from GObject - see docs http://library.isr.ist.utl.pt/docs/pygtk2refere>        return True
 
 
 def main():
